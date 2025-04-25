@@ -70,7 +70,8 @@ mod gnu_compression;
     feature = "macho",
     feature = "pe",
     feature = "wasm",
-    feature = "xcoff"
+    feature = "xcoff",
+    feature = "pef"
 ))]
 mod any;
 #[cfg(any(
@@ -79,7 +80,8 @@ mod any;
     feature = "macho",
     feature = "pe",
     feature = "wasm",
-    feature = "xcoff"
+    feature = "xcoff",
+    feature = "pef"
 ))]
 pub use any::*;
 
@@ -103,6 +105,9 @@ pub mod wasm;
 
 #[cfg(feature = "xcoff")]
 pub mod xcoff;
+
+#[cfg(feature = "pef")]
+pub mod pef;
 
 mod traits;
 pub use traits::*;
