@@ -124,6 +124,7 @@ pub enum BinaryFormat {
     Elf,
     MachO,
     Pe,
+    Pef,
     Wasm,
     Xcoff,
 }

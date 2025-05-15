@@ -100,14 +100,15 @@ pub mod macho;
 #[cfg(feature = "pe")]
 pub mod pe;
 
+#[cfg(feature = "pef")]
+pub mod pef;
+
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 #[cfg(feature = "xcoff")]
 pub mod xcoff;
 
-#[cfg(feature = "pef")]
-pub mod pef;
 
 mod traits;
 pub use traits::*;
@@ -283,6 +284,11 @@ pub enum FileKind {
     /// See [`xcoff::XcoffFile64`].
     #[cfg(feature = "xcoff")]
     Xcoff64,
+    /// A PEF file.
+    /// 
+    /// See ['pef::PefFile'].
+    #[cfg(feature = "pef")]
+    Pef,
 }
 
 impl FileKind {
@@ -361,6 +367,8 @@ impl FileKind {
             [0x01, 0xdf, ..] => FileKind::Xcoff32,
             #[cfg(feature = "xcoff")]
             [0x01, 0xf7, ..] => FileKind::Xcoff64,
+            #[cfg(feature = "pef")]
+            [0x4A, 0x6F, 0x79, 0x21, ..] => FileKind::Pef,
             _ => return Err(Error("Unknown file magic")),
         };
         Ok(kind)

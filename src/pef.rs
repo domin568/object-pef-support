@@ -5,17 +5,28 @@
 #![allow(missing_docs)]
 
 use crate::endian::{ BigEndian as BE, I32, U16, U32};
+use crate::pod::Pod;
+
+/// Joy!
+pub const TAG1 : u32 = 0x4A6F_7921;
+/// peff
+pub const TAG2 : u32= 0x7065_6666;
+
+/// pwpc
+pub const ARCHITECTURE_PPC : u32 = 0x7077_7063;
+/// m68k
+pub const ARCHITECTURE_68K : u32 = 0x6D36_386B;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct PEFContainerHeader 
+pub struct PEFContainerHeader
 {
     /// Designates that the container uses an Apple-defined format. This field must be set to "Joy!" in ASCII
-    pub tag1 : [u8; 4], 
+    pub tag1 : U32<BE>, 
     /// Identifies the type of container (currently set to peff in ASCII")
-    pub tag2 : [u8; 4],
+    pub tag2 : U32<BE>,
     /// Indicates the architecture type that the container was generated for. This field holds the ASCII value pwpc for the PowerPC CFM implementation or m68k for CFM-68K.
-    pub architecture : [u8; 4],
+    pub architecture : U32<BE>,
     /// Indicates the version of PEF used in the container. The current version is 1.
     pub format_version : U32<BE>,
     /// Indicates when the PEF container was created. The stamp follows the Macintosh time-measurement scheme (that is, the number of seconds measured from January 1, 1904)
@@ -79,7 +90,7 @@ pub enum ShareKind
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct PEFSectionHeader 
+pub struct PEFSectionHeader
 {
     /// Holds the offset from the start of the section name table to the location of the section name. 
     /// The name of the section is stored as a C-style null-terminated character string.
@@ -163,3 +174,8 @@ pub struct PEFLoaderInfoHeader
     /// Indicates the number of symbols exported from this container.
     pub exported_symbol_count : U32<BE>,
 }
+
+unsafe_impl_pod!(
+    PEFContainerHeader,
+    PEFSectionHeader
+);

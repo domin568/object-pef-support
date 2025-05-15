@@ -16,6 +16,8 @@ use crate::read::pe;
 use crate::read::wasm;
 #[cfg(feature = "xcoff")]
 use crate::read::xcoff;
+#[cfg(feature = "pef")]
+use crate::read::pef;
 use crate::read::{
     self, Architecture, BinaryFormat, CodeView, ComdatKind, CompressedData, CompressedFileRange,
     Error, Export, FileFlags, FileKind, Import, Object, ObjectComdat, ObjectKind, ObjectMap,
@@ -26,7 +28,7 @@ use crate::read::{
 
 /// Evaluate an expression on the contents of a file format enum.
 ///
-/// This is a hack to avoid virtual calls.
+/// This is a hack to avoid virtual calls.x
 macro_rules! with_inner {
     ($inner:expr, $enum:ident, | $var:ident | $body:expr) => {
         match $inner {
@@ -46,6 +48,8 @@ macro_rules! with_inner {
             $enum::Pe32(ref $var) => $body,
             #[cfg(feature = "pe")]
             $enum::Pe64(ref $var) => $body,
+            #[cfg(feature = "pef")]
+            $enum::Pef(ref $var) => $body,
             #[cfg(feature = "wasm")]
             $enum::Wasm(ref $var) => $body,
             #[cfg(feature = "xcoff")]
@@ -75,6 +79,8 @@ macro_rules! with_inner_mut {
             $enum::Pe32(ref mut $var) => $body,
             #[cfg(feature = "pe")]
             $enum::Pe64(ref mut $var) => $body,
+            #[cfg(feature = "pef")]
+            $enum::Pef(ref mut $var) => $body,
             #[cfg(feature = "wasm")]
             $enum::Wasm(ref mut $var) => $body,
             #[cfg(feature = "xcoff")]
@@ -105,6 +111,8 @@ macro_rules! map_inner {
             $from::Pe32(ref $var) => $to::Pe32($body),
             #[cfg(feature = "pe")]
             $from::Pe64(ref $var) => $to::Pe64($body),
+            #[cfg(feature = "pef")]
+            $from::Pef(ref $var) => $to::Pef($body),
             #[cfg(feature = "wasm")]
             $from::Wasm(ref $var) => $to::Wasm($body),
             #[cfg(feature = "xcoff")]
@@ -135,6 +143,8 @@ macro_rules! map_inner_option {
             $from::Pe32(ref $var) => $body.map($to::Pe32),
             #[cfg(feature = "pe")]
             $from::Pe64(ref $var) => $body.map($to::Pe64),
+            #[cfg(feature = "pef")]
+            $from::Pef(ref $var) => $body.map($to::Pef),
             #[cfg(feature = "wasm")]
             $from::Wasm(ref $var) => $body.map($to::Wasm),
             #[cfg(feature = "xcoff")]
@@ -164,6 +174,8 @@ macro_rules! map_inner_option_mut {
             $from::Pe32(ref mut $var) => $body.map($to::Pe32),
             #[cfg(feature = "pe")]
             $from::Pe64(ref mut $var) => $body.map($to::Pe64),
+            #[cfg(feature = "pef")]
+            $from::Pef(ref mut $var) => $body.map($to::Pef),
             #[cfg(feature = "wasm")]
             $from::Wasm(ref mut $var) => $body.map($to::Wasm),
             #[cfg(feature = "xcoff")]
@@ -194,6 +206,8 @@ macro_rules! next_inner {
             $from::Pe32(ref mut iter) => iter.next().map($to::Pe32),
             #[cfg(feature = "pe")]
             $from::Pe64(ref mut iter) => iter.next().map($to::Pe64),
+            #[cfg(feature = "pef")]
+            $from::Pef(ref mut iter) => iter.next().map($to::Pef),
             #[cfg(feature = "wasm")]
             $from::Wasm(ref mut iter) => iter.next().map($to::Wasm),
             #[cfg(feature = "xcoff")]
@@ -227,6 +241,8 @@ pub enum File<'data, R: ReadRef<'data> = &'data [u8]> {
     Pe32(pe::PeFile32<'data, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeFile64<'data, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefFile<'data, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmFile<'data, R>),
     #[cfg(feature = "xcoff")]
@@ -253,6 +269,8 @@ impl<'data, R: ReadRef<'data>> File<'data, R> {
             FileKind::Pe32 => File::Pe32(pe::PeFile32::parse(data)?),
             #[cfg(feature = "pe")]
             FileKind::Pe64 => File::Pe64(pe::PeFile64::parse(data)?),
+            #[cfg(feature = "pef")]
+            FileKind::Pef => File::Pef(pef::PefFile::parse(data)?),
             #[cfg(feature = "coff")]
             FileKind::Coff => File::Coff(coff::CoffFile::parse(data)?),
             #[cfg(feature = "coff")]
@@ -293,10 +311,13 @@ impl<'data, R: ReadRef<'data>> File<'data, R> {
             File::MachO32(_) | File::MachO64(_) => BinaryFormat::MachO,
             #[cfg(feature = "pe")]
             File::Pe32(_) | File::Pe64(_) => BinaryFormat::Pe,
+            #[cfg(feature = "pef")]
+            File::Pef(_) => BinaryFormat::Pef,
             #[cfg(feature = "wasm")]
             File::Wasm(_) => BinaryFormat::Wasm,
             #[cfg(feature = "xcoff")]
             File::Xcoff32(_) | File::Xcoff64(_) => BinaryFormat::Xcoff,
+
         }
     }
 }
@@ -551,6 +572,8 @@ enum SegmentIteratorInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeSegmentIterator32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeSegmentIterator64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefSegmentIterator<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmSegmentIterator<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -593,6 +616,8 @@ enum SegmentInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeSegment32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeSegment64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefSegment<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmSegment<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -685,6 +710,8 @@ enum SectionIteratorInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeSectionIterator32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeSectionIterator64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefSectionIterator<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmSectionIterator<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -726,6 +753,8 @@ enum SectionInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeSection32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeSection64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefSection<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmSection<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -862,6 +891,8 @@ enum ComdatIteratorInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeComdatIterator32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeComdatIterator64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefComdatIterator<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmComdatIterator<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -903,6 +934,8 @@ enum ComdatInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeComdat32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeComdat64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefComdat<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmComdat<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -978,6 +1011,8 @@ enum ComdatSectionIteratorInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeComdatSectionIterator32<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeComdatSectionIterator64<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefComdatSectionIterator<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmComdatSectionIterator<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -1046,6 +1081,8 @@ where
     Pe32((coff::CoffSymbolTable<'data, 'file, R>, PhantomData<R>)),
     #[cfg(feature = "pe")]
     Pe64((coff::CoffSymbolTable<'data, 'file, R>, PhantomData<R>)),
+    #[cfg(feature = "pef")]
+    Pef((pef::PefSymbolTable<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "wasm")]
     Wasm((wasm::WasmSymbolTable<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "xcoff")]
@@ -1130,6 +1167,8 @@ where
     Pe32((coff::CoffSymbolIterator<'data, 'file, R>, PhantomData<R>)),
     #[cfg(feature = "pe")]
     Pe64((coff::CoffSymbolIterator<'data, 'file, R>, PhantomData<R>)),
+    #[cfg(feature = "pef")]
+    Pef((pef::PefSymbolIterator<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "wasm")]
     Wasm((wasm::WasmSymbolIterator<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "xcoff")]
@@ -1209,6 +1248,8 @@ where
     Pe32((coff::CoffSymbol<'data, 'file, R>, PhantomData<R>)),
     #[cfg(feature = "pe")]
     Pe64((coff::CoffSymbol<'data, 'file, R>, PhantomData<R>)),
+    #[cfg(feature = "pef")]
+    Pef((pef::PefSymbol<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "wasm")]
     Wasm((wasm::WasmSymbol<'data, 'file>, PhantomData<R>)),
     #[cfg(feature = "xcoff")]
@@ -1357,6 +1398,8 @@ enum SectionRelocationIteratorInternal<'data, 'file, R: ReadRef<'data>> {
     Pe32(pe::PeRelocationIterator<'data, 'file, R>),
     #[cfg(feature = "pe")]
     Pe64(pe::PeRelocationIterator<'data, 'file, R>),
+    #[cfg(feature = "pef")]
+    Pef(pef::PefRelocationIterator<'data, 'file, R>),
     #[cfg(feature = "wasm")]
     Wasm(wasm::WasmRelocationIterator<'data, 'file, R>),
     #[cfg(feature = "xcoff")]
@@ -1369,6 +1412,6 @@ impl<'data, 'file, R: ReadRef<'data>> Iterator for SectionRelocationIterator<'da
     type Item = (u64, Relocation);
 
     fn next(&mut self) -> Option<Self::Item> {
-        with_inner_mut!(self.inner, SectionRelocationIteratorInternal, |x| x.next())
+        todo!();
     }
 }

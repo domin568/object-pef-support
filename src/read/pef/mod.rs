@@ -3,4 +3,7 @@
 use crate::pef;
 
 mod file;
-//pub use file::*;
+pub use file::*;
+
+mod section;
+pub use section::*;
