@@ -1,8 +1,7 @@
 use core::marker::PhantomData;
-use core::{cmp, iter, slice, str};
+use core::{iter, slice, str};
 
-use crate::endian::LittleEndian as LE;
-use crate::pef;
+use crate::{endian, pef};
 use crate::pef::PEFSectionHeader;
 use crate::read::util::StringTable;
 use crate::read::{
@@ -159,13 +158,13 @@ impl<'data, 'file, R> PefSection<'data, 'file, R>
 where
     R: ReadRef<'data>,
 {
-    /// Get the PEF file containing this segment.
-    pub fn pe_file(&self) -> &'file PefFile<'data, R> {
+    /// Get the PEF file containing this section.
+    pub fn pef_file(&self) -> &'file PefFile<'data, R> {
         self.file
     }
 
     /// Get the raw PE section header.
-    pub fn pe_section(&self) -> &'data pef::PEFSectionHeader {
+    pub fn pef_section(&self) -> &'data pef::PEFSectionHeader {
         self.section
     }
 }
@@ -278,11 +277,14 @@ impl<'data> SectionTable<'data> {
     /// `data` must be the entire file data.
     /// `offset` must be after the optional file header.
     pub fn parse<R: ReadRef<'data>>(
-        header: &pef::PEFSectionHeader,
+        header: &pef::PEFContainerHeader,
         data: R,
         offset: u64,
     ) -> Result<Self> {
-        todo!();
+        let sections = data
+            .read_slice_at(offset, header.section_count.get(endian::BigEndian) as usize)
+            .read_error("Invalid PEF section headers")?;
+        Ok(SectionTable { sections })
     }
 
     /// Iterate over the section headers.
@@ -319,7 +321,7 @@ impl<'data> SectionTable<'data> {
     pub fn section(&self, index: SectionIndex) -> read::Result<&'data pef::PEFSectionHeader> {
         self.sections
             .get(index.0.wrapping_sub(1))
-            .read_error("Invalid COFF/PE section index")
+            .read_error("Invalid PEF section index")
     }
 
     /// Return the section header with the given name.
@@ -341,45 +343,6 @@ impl<'data> SectionTable<'data> {
     /// [data overlay](https://security.stackexchange.com/questions/77336/how-is-the-file-overlay-read-by-an-exe-virus)
     pub fn max_section_file_offset(&self) -> u64 {
         todo!();
-    }
-}
-
-impl<'data> SectionTable<'data> {
-    /// Return the file offset of the given virtual address, and the size up
-    /// to the end of the section containing it.
-    ///
-    /// Returns `None` if no section contains the address.
-    pub fn pe_file_range_at(&self, va: u32) -> Option<(u32, u32)> {
-        todo!();
-    }
-
-    /// Return the data starting at the given virtual address, up to the end of the
-    /// section containing it.
-    ///
-    /// Ignores sections with invalid data.
-    ///
-    /// Returns `None` if no section contains the address.
-    pub fn pe_data_at<R: ReadRef<'data>>(&self, data: R, va: u32) -> Option<&'data [u8]> {
-        self.iter().find_map(|section| section.pe_data_at(data, va))
-    }
-
-    /// Return the data of the section that contains the given virtual address in a PE file.
-    ///
-    /// Also returns the virtual address of that section.
-    ///
-    /// Ignores sections with invalid data.
-    pub fn pe_data_containing<R: ReadRef<'data>>(
-        &self,
-        data: R,
-        va: u32,
-    ) -> Option<(&'data [u8], u32)> {
-        self.iter()
-            .find_map(|section| section.pe_data_containing(data, va))
-    }
-
-    /// Return the section that contains a given virtual address.
-    pub fn section_containing(&self, va: u32) -> Option<&'data PEFSectionHeader> {
-        self.iter().find(|section| section.contains_rva(va))
     }
 }
 

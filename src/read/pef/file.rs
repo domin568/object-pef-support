@@ -1,22 +1,19 @@
 use core::fmt::Debug;
 use crate::pef::{self};
 use crate::endian::BigEndian as BE;
-use core::{slice, str};
-use core::marker::PhantomData;
+use core::{slice, str, mem};
 use alloc::vec::Vec;
-use crate::pef::PEFSectionHeader;
 use crate::read::{
-    self, Architecture, ComdatKind, CompressedData, CompressedFileRange, Error, Export, FileFlags,
+    self, Architecture, ComdatKind, Error, Export, FileFlags,
     Import, NoDynamicRelocationIterator, Object, ObjectComdat, ObjectKind, ObjectSection,
-    ObjectSegment, ObjectSymbol, ObjectSymbolTable, ReadError, ReadRef, Relocation, RelocationMap,
-    Result, SectionFlags, SectionIndex, SectionKind, SegmentFlags, SymbolFlags, SymbolIndex,
-    SymbolKind, SymbolScope, SymbolSection,
+    ObjectSymbol, ObjectSymbolTable, ReadError, ReadRef,
+    Result, SectionIndex, SymbolFlags, SymbolIndex,
+    SymbolKind, SymbolScope, SymbolSection
 };
 
 use super::{
     PefSection, PefSectionIterator,
-    PefSegment, PefSegmentIterator, SectionTable,
-    PefRelocationIterator
+    PefSegment, PefSegmentIterator, SectionTable
 };
 
 /// A PEF image file.
@@ -26,8 +23,7 @@ use super::{
 pub struct PefFile<'data, R = &'data [u8]>
 {
     pub(super) header: &'data pef::PEFContainerHeader,
-    //pub(super) sections: Vec<SectionTable<'data>>,
-    //pub(super) symbols: PefSymbolTable<'data>,
+    pub(super) sections: SectionTable<'data>,
     pub(super) data: R,
 }
 
@@ -38,12 +34,10 @@ where
     /// Parse the raw PEF file data.
     pub fn parse(data: R) -> Result<Self> {
         let header = pef::PEFContainerHeader::parse(data)?;
-        //let sections = Vec::new();
-        //let symbols = Vec::new();
+        let sections = SectionTable::parse(header, data, mem::size_of::<pef::PEFContainerHeader>() as u64)?;
         Ok(PefFile {
             header,
-            //sections,
-            //symbols,
+            sections,
             data,
         })
     }
@@ -67,8 +61,7 @@ impl pef::PEFContainerHeader {
 impl<'data, R> read::private::Sealed for PefFile<'data, R>
 where
     R: ReadRef<'data>,
-{
-}
+{}
 
 impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     type Segment<'file>
@@ -158,7 +151,12 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn section_by_index(&self, index: SectionIndex) -> Result<PefSection<'data, '_, R>> {
-        todo!()
+        let section = self.sections.section(index)?;
+        Ok(PefSection {
+            file: self,
+            index,
+            section,
+        })
     }
 
     fn sections(&self) -> Self::SectionIterator<'_> {

@@ -341,6 +341,8 @@ impl FileKind {
                     _ => return Err(Error("Unknown MS-DOS file")),
                 }
             }
+            #[cfg(feature = "pef")]
+            [0x4A, 0x6F, 0x79, 0x21, ..] => FileKind::Pef,
             // TODO: more COFF machines
             #[cfg(feature = "coff")]
             // COFF arm
@@ -367,8 +369,6 @@ impl FileKind {
             [0x01, 0xdf, ..] => FileKind::Xcoff32,
             #[cfg(feature = "xcoff")]
             [0x01, 0xf7, ..] => FileKind::Xcoff64,
-            #[cfg(feature = "pef")]
-            [0x4A, 0x6F, 0x79, 0x21, ..] => FileKind::Pef,
             _ => return Err(Error("Unknown file magic")),
         };
         Ok(kind)
