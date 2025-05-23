@@ -8,8 +8,9 @@ use crate::read::{
     Import, NoDynamicRelocationIterator, Object, ObjectComdat, ObjectKind, ObjectSection,
     ObjectSymbol, ObjectSymbolTable, ReadError, ReadRef,
     Result, SectionIndex, SymbolFlags, SymbolIndex,
-    SymbolKind, SymbolScope, SymbolSection
+    SymbolKind, SymbolScope, SymbolSection, StringTable
 };
+use chrono::{DateTime, Utc};
 
 use super::{
     PefSection, PefSectionIterator,
@@ -21,9 +22,11 @@ use super::{
 /// Most functionality is provided by the [`Object`] trait implementation.
 #[derive(Debug)]
 pub struct PefFile<'data, R = &'data [u8]>
+where
+    R: ReadRef<'data>
 {
     pub(super) header: &'data pef::PEFContainerHeader,
-    pub(super) sections: SectionTable<'data>,
+    pub(super) sections: SectionTable<'data, R>,
     pub(super) data: R,
 }
 
@@ -34,7 +37,7 @@ where
     /// Parse the raw PEF file data.
     pub fn parse(data: R) -> Result<Self> {
         let header = pef::PEFContainerHeader::parse(data)?;
-        let sections = SectionTable::parse(header, data, mem::size_of::<pef::PEFContainerHeader>() as u64)?;
+        let sections = header.sections(data)?;
         Ok(PefFile {
             header,
             sections,
@@ -56,6 +59,51 @@ impl pef::PEFContainerHeader {
         }
         Ok(container_header)
     }
+
+        /// Return the slice of section headers.
+    ///
+    /// Returns `Ok(&[])` if there are no section headers.
+    /// Returns `Err` for invalid values.
+    fn section_headers<'data, R: ReadRef<'data>>(
+        &self,
+        data: R,
+    ) -> read::Result<&'data [pef::PEFSectionHeader]> {
+        if self.section_count.get(BE) == 0 {
+            return Err(Error("Missing sections"));
+        }
+        let sections_off = mem::size_of::<pef::PEFContainerHeader>() as u64;
+        let section_size = mem::size_of::<pef::PEFSectionHeader>() as u64;
+        let section_count = self.section_count.get(BE) as u64;
+        if data.len().expect("Cannot get data len") <= sections_off + section_size * section_count {
+            return Err(Error("Cut file"));
+        }
+        data.read_slice_at(sections_off, section_size as usize * section_count as usize)
+            .read_error("Invalid PEF section header offset/size/alignment")
+    }
+
+    fn section_strings<'data, R: ReadRef<'data>>(
+        &self,
+        data: R,
+        sections: &[pef::PEFSectionHeader],
+    ) -> read::Result<StringTable<'data, R>> {
+        if sections.is_empty() {
+            return Ok(StringTable::default());
+        };
+        let offset = mem::size_of::<pef::PEFContainerHeader>()
+                            + (self.section_count.get(BE) as usize * mem::size_of::<pef::PEFSectionHeader>());
+        Ok(StringTable::new(data, offset as u64, sections[0].container_offset.get(BE) as u64))
+    }
+
+    /// Return the section table.
+    fn sections<'data, R: ReadRef<'data>>(
+        &self,
+        data: R,
+    ) -> read::Result<SectionTable<'data, R>> {
+        let sections = self.section_headers(data)?;
+        let strings = self.section_strings(data, sections)?;
+        Ok(SectionTable::new(sections, strings))
+    }
+
 }
 
 impl<'data, R> read::private::Sealed for PefFile<'data, R>
@@ -160,7 +208,10 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn sections(&self) -> Self::SectionIterator<'_> {
-        todo!()
+        PefSectionIterator {
+            file: self,
+            iter: self.sections.iter().enumerate(),
+        }
     }
 
     fn comdats(&self) -> Self::ComdatIterator<'_> {
@@ -219,18 +270,38 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     fn flags(&self) -> FileFlags {
         FileFlags::None
     }
+
 }
+
+impl<'data, R> PefFile<'data, R>
+where 
+    R: ReadRef<'data>,
+{
+    /// Returns compilation timestamp
+    pub fn timestamp(&self) -> Option<DateTime<Utc>> {
+        const Hfs_Unix_Offset : i64 = 2082844800;
+        DateTime::from_timestamp(self.header.date_time_stamp.get(BE) as i64 - Hfs_Unix_Offset, 0)
+    }
+}
+
+
 
 /// An iterator for the COMDAT section groups in a [`PefFile`].
 ///
 /// This is a stub that doesn't implement any functionality.
 #[derive(Debug)]
-pub struct PefComdatIterator<'data, 'file, R = &'data [u8]> {
+pub struct PefComdatIterator<'data, 'file, R = &'data [u8]> 
+where
+    R: ReadRef<'data>,
+{
     #[allow(unused)]
     file: &'file PefFile<'data, R>,
 }
 
-impl<'data, 'file, R> Iterator for PefComdatIterator<'data, 'file, R> {
+impl<'data, 'file, R> Iterator for PefComdatIterator<'data, 'file, R> 
+where     
+    R: ReadRef<'data>,
+{
     type Item = PefComdat<'data, 'file, R>;
 
     #[inline]
@@ -243,14 +314,23 @@ impl<'data, 'file, R> Iterator for PefComdatIterator<'data, 'file, R> {
 ///
 /// This is a stub that doesn't implement any functionality.
 #[derive(Debug)]
-pub struct PefComdat<'data, 'file, R = &'data [u8]> {
+pub struct PefComdat<'data, 'file, R = &'data [u8]> 
+where
+    R: ReadRef<'data>,
+{
     #[allow(unused)]
     file: &'file PefFile<'data, R>,
 }
 
-impl<'data, 'file, R> read::private::Sealed for PefComdat<'data, 'file, R> {}
+impl<'data, 'file, R> read::private::Sealed for PefComdat<'data, 'file, R> 
+where 
+    R: ReadRef<'data>
+{}
 
-impl<'data, 'file, R> ObjectComdat<'data> for PefComdat<'data, 'file, R> {
+impl<'data, 'file, R> ObjectComdat<'data> for PefComdat<'data, 'file, R> 
+where
+    R: ReadRef<'data>,
+{
     type SectionIterator = PefComdatSectionIterator<'data, 'file, R>;
 
     #[inline]
@@ -283,12 +363,18 @@ impl<'data, 'file, R> ObjectComdat<'data> for PefComdat<'data, 'file, R> {
 ///
 /// This is a stub that doesn't implement any functionality.
 #[derive(Debug)]
-pub struct PefComdatSectionIterator<'data, 'file, R = &'data [u8]> {
+pub struct PefComdatSectionIterator<'data, 'file, R = &'data [u8]> 
+where
+    R: ReadRef<'data>,
+{
     #[allow(unused)]
     file: &'file PefFile<'data, R>,
 }
 
-impl<'data, 'file, R> Iterator for PefComdatSectionIterator<'data, 'file, R> {
+impl<'data, 'file, R> Iterator for PefComdatSectionIterator<'data, 'file, R> 
+where
+    R: ReadRef<'data>,
+{
     type Item = SectionIndex;
 
     fn next(&mut self) -> Option<Self::Item> {

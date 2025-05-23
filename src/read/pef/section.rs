@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::{iter, slice, str};
 
 use crate::{endian, pef};
-use crate::pef::PEFSectionHeader;
+use crate::endian::BigEndian as BE;
 use crate::read::util::StringTable;
 use crate::read::{
     self, CompressedData, CompressedFileRange, ObjectSection, ObjectSegment, ReadError, ReadRef,
@@ -151,7 +151,7 @@ where
 {
     pub(super) file: &'file PefFile<'data, R>,
     pub(super) index: SectionIndex,
-    pub(super) section: &'data pef::PEFSectionHeader,
+    pub(super) section: &'data pef::PEFSectionHeader
 }
 
 impl<'data, 'file, R> PefSection<'data, 'file, R>
@@ -188,26 +188,28 @@ where
 
     #[inline]
     fn address(&self) -> u64 {
-        todo!();
+        u64::from(self.section.default_address.get(BE))
     }
 
     #[inline]
     fn size(&self) -> u64 {
-        todo!();
+        u64::from(self.section.total_size.get(BE))
     }
 
     #[inline]
     fn align(&self) -> u64 {
-        todo!();
+        u64::from(1u64 << self.section.alignment)
     }
 
     #[inline]
     fn file_range(&self) -> Option<(u64, u64)> {
-        todo!();
+        (self.section.packed_size.get(BE) != 0)
+        .then_some((self.section.container_offset.get(BE) as u64, self.section.packed_size.get(BE) as u64))
     }
 
     fn data(&self) -> Result<&'data [u8]> {
-        todo!();
+        let (offset, size) = self.file_range().expect("Empty section");
+        self.file.data.read_bytes_at(offset.into(), size.into()).read_error("Invalid PEF section offset or size")
     }
 
     fn data_range(&self, address: u64, size: u64) -> Result<Option<&'data [u8]>> {
@@ -226,7 +228,9 @@ where
 
     #[inline]
     fn name_bytes(&self) -> Result<&'data [u8]> {
-        todo!();
+        self.file
+        .sections
+        .section_name(self.section)
     }
 
     #[inline]
@@ -234,7 +238,7 @@ where
         let name = self.name_bytes()?;
         str::from_utf8(name)
             .ok()
-            .read_error("Non UTF-8 PE section name")
+            .read_error("Non UTF-8 PEF section name")
     }
 
     #[inline]
@@ -249,7 +253,17 @@ where
 
     #[inline]
     fn kind(&self) -> SectionKind {
-        todo!();
+        match self.section.section_kind {
+            pef::SectionKind::Code => SectionKind::Text,
+            pef::SectionKind::UnpackedData => SectionKind::Data,
+            pef::SectionKind::PatternInitializedData => SectionKind::Data,
+            pef::SectionKind::Constant => SectionKind::Data,
+            pef::SectionKind::Loader => SectionKind::Metadata,
+            pef::SectionKind::Debug => SectionKind::Debug,
+            pef::SectionKind::ExecutableData => SectionKind::Text,
+            pef::SectionKind::Exception => SectionKind::Unknown,
+            pef::SectionKind::Traceback => SectionKind::Unknown,
+        }
     }
 
     fn relocations(&self) -> PefRelocationIterator<'data, 'file, R> {
@@ -265,26 +279,34 @@ where
     }
 }
 
-/// The table of section headers in a PEF file.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SectionTable<'data> {
+/// The table of section headers in an PEF file.
+///
+/// Also includes the string table used for the section names.
+///
+/// Returned by [`PEFContainerHeader::sections`].
+#[derive(Debug, Clone, Copy)]
+pub struct SectionTable<'data, R = &'data [u8]>
+where
+    R: ReadRef<'data>,
+{
     sections: &'data [pef::PEFSectionHeader],
+    strings: StringTable<'data, R>,
 }
 
-impl<'data> SectionTable<'data> {
-    /// Parse the section table.
-    ///
-    /// `data` must be the entire file data.
-    /// `offset` must be after the optional file header.
-    pub fn parse<R: ReadRef<'data>>(
-        header: &pef::PEFContainerHeader,
-        data: R,
-        offset: u64,
-    ) -> Result<Self> {
-        let sections = data
-            .read_slice_at(offset, header.section_count.get(endian::BigEndian) as usize)
-            .read_error("Invalid PEF section headers")?;
-        Ok(SectionTable { sections })
+impl<'data, R: ReadRef<'data>> Default for SectionTable<'data, R> {
+    fn default() -> Self {
+        SectionTable {
+            sections: &[],
+            strings: StringTable::default(),
+        }
+    }
+}
+
+impl<'data, R: ReadRef<'data>> SectionTable<'data, R> {
+    /// Create a new section table.
+    #[inline]
+    pub fn new(sections: &'data [pef::PEFSectionHeader], strings: StringTable<'data, R>) -> Self {
+        SectionTable { sections, strings }
     }
 
     /// Iterate over the section headers.
@@ -329,12 +351,20 @@ impl<'data> SectionTable<'data> {
     /// The returned index is 1-based.
     ///
     /// Ignores sections with invalid names.
-    pub fn section_by_name<R: ReadRef<'data>>(
+    pub fn section_by_name(
         &self,
-        strings: StringTable<'data, R>,
         name: &[u8],
     ) -> Option<(SectionIndex, &'data pef::PEFSectionHeader)> {
-        todo!();
+        self.enumerate()
+        .find(|(_, section)| self.section_name(section) == Ok(name))
+    }
+
+    /// Return the section name for the given section header.
+    pub fn section_name(
+        &self,
+        section: &pef::PEFSectionHeader,
+    ) -> read::Result<&'data [u8]> {
+        section.name(self.strings)
     }
 
     /// Compute the maximum file offset used by sections.
@@ -370,7 +400,7 @@ impl pef::PEFSectionHeader {
     /// Return the section data in a PE file.
     ///
     /// The length of the data will be the minimum of the file size and virtual size.
-    pub fn pe_data<'data, R: ReadRef<'data>>(&self, data: R) -> Result<&'data [u8]> {
+    pub fn pef_data<'data, R: ReadRef<'data>>(&self, data: R) -> Result<&'data [u8]> {
         todo!();
     }
 
@@ -401,6 +431,17 @@ impl pef::PEFSectionHeader {
     ) -> Option<(&'data [u8], u32)> {
         todo!();
     }
+
+    /// Parse the section name from the string table.
+    fn name<'data, R: ReadRef<'data>>(
+        &self,
+        strings: StringTable<'data, R>,
+    ) -> read::Result<&'data [u8]> {
+        strings
+            .get(self.name_offset.get(BE))
+            .read_error("Invalid PEF section name offset")
+    }
+
 }
 
 /// An iterator for the relocations in an [`PefSection`].

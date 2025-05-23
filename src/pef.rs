@@ -94,7 +94,7 @@ pub struct PEFSectionHeader
 {
     /// Holds the offset from the start of the section name table to the location of the section name. 
     /// The name of the section is stored as a C-style null-terminated character string.
-    pub name_offset : I32<BE>,
+    pub name_offset : U32<BE>,
     /// Indicates the preferred address (as designated by the linker) at which to place the section’s instance. 
     /// If the Code Fragment Manager can place the instance in the preferred memory location, 
     /// the load-time and link-time addresses are identical and no internal relocations need to be performed.

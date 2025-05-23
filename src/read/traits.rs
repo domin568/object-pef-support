@@ -1,6 +1,5 @@
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
-
 use crate::endian::Endianness;
 use crate::read::{
     self, Architecture, CodeView, ComdatKind, CompressedData, CompressedFileRange, Export,
