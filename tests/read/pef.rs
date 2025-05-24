@@ -1,9 +1,9 @@
 use object::Object;
-use chrono::{DateTime, Utc, Datelike};
+use chrono::Datelike;
 
 #[cfg(feature = "pef")]
 #[test]
-fn pef_test_section_by_index() {
+fn pef_test_section() {
     let pef_testfiles = std::path::Path::new("testfiles/pef");
 
     let file_name = "test1";
@@ -14,6 +14,8 @@ fn pef_test_section_by_index() {
     let object = object::read::File::parse(&reader);
     assert!(object.is_ok());
     let object = object.unwrap();
+
+    assert!(object.sections().count() == 3);
 
     let sect_0 = object.section_by_index(object::SectionIndex(1));
     assert!(sect_0.is_ok());

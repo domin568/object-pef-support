@@ -10,7 +10,7 @@ use crate::read::{
     Result, SectionIndex, SymbolFlags, SymbolIndex,
     SymbolKind, SymbolScope, SymbolSection, StringTable
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 
 use super::{
     PefSection, PefSectionIterator,
@@ -77,7 +77,7 @@ impl pef::PEFContainerHeader {
         if data.len().expect("Cannot get data len") <= sections_off + section_size * section_count {
             return Err(Error("Cut file"));
         }
-        data.read_slice_at(sections_off, section_size as usize * section_count as usize)
+        data.read_slice_at(sections_off, section_count as usize)
             .read_error("Invalid PEF section header offset/size/alignment")
     }
 
@@ -280,11 +280,10 @@ where
     /// Returns compilation timestamp
     pub fn timestamp(&self) -> Option<DateTime<Utc>> {
         const Hfs_Unix_Offset : i64 = 2082844800;
-        DateTime::from_timestamp(self.header.date_time_stamp.get(BE) as i64 - Hfs_Unix_Offset, 0)
+        let seconds = self.header.date_time_stamp.get(BE) as i64 - Hfs_Unix_Offset;
+        DateTime::from_timestamp(seconds, 0)
     }
 }
-
-
 
 /// An iterator for the COMDAT section groups in a [`PefFile`].
 ///

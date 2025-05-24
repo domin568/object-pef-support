@@ -368,9 +368,6 @@ impl<'data, R: ReadRef<'data>> SectionTable<'data, R> {
     }
 
     /// Compute the maximum file offset used by sections.
-    ///
-    /// This will usually match the end of file, unless the PE file has a
-    /// [data overlay](https://security.stackexchange.com/questions/77336/how-is-the-file-overlay-read-by-an-exe-virus)
     pub fn max_section_file_offset(&self) -> u64 {
         todo!();
     }
