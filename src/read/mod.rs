@@ -898,6 +898,10 @@ pub enum CompressionFormat {
     ///
     /// Used for ELF compression.
     Zstandard,
+    /// Pef Section Compression
+    /// 
+    /// Used for PEF compression
+    PefPattern,
 }
 
 /// A range in a file that may be compressed.
@@ -982,7 +986,7 @@ impl<'data> CompressedData<'data> {
         match self.format {
             CompressionFormat::None => Ok(Cow::Borrowed(self.data)),
             #[cfg(feature = "compression")]
-            CompressionFormat::Zlib | CompressionFormat::Zstandard => {
+            CompressionFormat::Zlib | CompressionFormat::Zstandard | CompressionFormat::PefPattern => {
                 use core::convert::TryInto;
                 use std::io::Read;
                 let size = self
@@ -1033,6 +1037,10 @@ impl<'data> CompressedData<'data> {
                                 .ok()
                                 .read_error("Invalid zstd compressed data")?;
                         }
+                    }
+                    CompressionFormat::PefPattern => {
+                        let mut pef_pattern_decompressor = pef::PefSectionDecompressor::new(self.data, &mut decompressed);
+                        pef_pattern_decompressor.decompress_vec();
                     }
                     _ => unreachable!(),
                 }

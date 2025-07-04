@@ -1,11 +1,11 @@
 use core::marker::PhantomData;
 use core::{iter, slice, str};
 
-use crate::{endian, pef};
+use crate::{pef};
 use crate::endian::BigEndian as BE;
 use crate::read::util::StringTable;
 use crate::read::{
-    self, CompressedData, CompressedFileRange, ObjectSection, ObjectSegment, ReadError, ReadRef,
+    self, CompressedData, CompressedFileRange, CompressionFormat, ObjectSection, ObjectSegment, ReadError, ReadRef,
     Relocation, RelocationMap, Result, SectionFlags, SectionIndex, SectionKind, SegmentFlags,
 };
 
@@ -167,6 +167,31 @@ where
     pub fn pef_section(&self) -> &'data pef::PEFSectionHeader {
         self.section
     }
+
+    fn bytes(&self) -> read::Result<&'data [u8]> {
+        self.section
+            .data(self.file.data)
+            .read_error("Invalid PEF section size or offset")
+    }
+
+    fn maybe_compressed(&self) -> Option<CompressedFileRange> {
+        if (self.section.section_kind == pef::SectionKind::PatternInitializedData) {
+            let format = CompressionFormat::PefPattern;
+            let offset = self.section.container_offset.get(BE).into();
+            let compressed_size = self.section.packed_size.get(BE).into();
+            let uncompressed_size = self.section.unpacked_size.get(BE).into();
+            Some(CompressedFileRange {
+                format,
+                offset,
+                compressed_size,
+                uncompressed_size,
+            })
+        }
+        else {
+            None
+        }
+
+    }
 }
 
 impl<'data, 'file, R> read::private::Sealed for PefSection<'data, 'file, R>
@@ -193,7 +218,7 @@ where
 
     #[inline]
     fn size(&self) -> u64 {
-        u64::from(self.section.total_size.get(BE))
+        u64::from(self.section.packed_size.get(BE))
     }
 
     #[inline]
@@ -213,17 +238,26 @@ where
     }
 
     fn data_range(&self, address: u64, size: u64) -> Result<Option<&'data [u8]>> {
-        todo!();
+        Ok(read::util::data_range(
+            self.bytes()?,
+            self.address(),
+            address,
+            size,
+        ))
     }
 
     #[inline]
     fn compressed_file_range(&self) -> Result<CompressedFileRange> {
-        Ok(CompressedFileRange::none(self.file_range()))
+        Ok(if let Some(data) = self.maybe_compressed() {
+            data
+        } else {
+            CompressedFileRange::none(self.file_range())
+        })
     }
 
     #[inline]
     fn compressed_data(&self) -> Result<CompressedData<'data>> {
-        self.data().map(CompressedData::none)
+        self.compressed_file_range()?.data(self.file.data)
     }
 
     #[inline]
@@ -267,7 +301,7 @@ where
     }
 
     fn relocations(&self) -> PefRelocationIterator<'data, 'file, R> {
-        PefRelocationIterator(PhantomData)
+        todo!();
     }
 
     fn relocation_map(&self) -> read::Result<RelocationMap> {
@@ -374,6 +408,23 @@ impl<'data, R: ReadRef<'data>> SectionTable<'data, R> {
 }
 
 impl pef::PEFSectionHeader {
+
+    fn data<'data, R: ReadRef<'data>>(
+        &self,
+        data: R,
+    ) -> read::Result<&'data [u8]> {
+        if let Some((offset, size)) = self.file_range() {
+            data.read_bytes_at(offset, size)
+                .read_error("Invalid PEF section size or offset")
+        } else {
+            Ok(&[])
+        }
+    }
+
+    fn file_range(&self) -> Option<(u64, u64)> {
+        Some((self.container_offset.get(BE).into(), self.packed_size.get(BE).into()))
+    }
+
     /// Return the offset and size of the section in a PE file.
     ///
     /// The size of the range will be the minimum of the file size and virtual size.
@@ -407,7 +458,7 @@ impl pef::PEFSectionHeader {
     /// Ignores sections with invalid data.
     ///
     /// Returns `None` if the section does not contain the address.
-    pub fn pe_data_at<'data, R: ReadRef<'data>>(&self, data: R, va: u32) -> Option<&'data [u8]> {
+    pub fn pef_data_at<'data, R: ReadRef<'data>>(&self, data: R, va: u32) -> Option<&'data [u8]> {
         todo!();
     }
 
@@ -421,7 +472,7 @@ impl pef::PEFSectionHeader {
     /// Also returns the virtual address of that section.
     ///
     /// Ignores sections with invalid data.
-    pub fn pe_data_containing<'data, R: ReadRef<'data>>(
+    pub fn pef_data_containing<'data, R: ReadRef<'data>>(
         &self,
         data: R,
         va: u32,
@@ -434,9 +485,11 @@ impl pef::PEFSectionHeader {
         &self,
         strings: StringTable<'data, R>,
     ) -> read::Result<&'data [u8]> {
-        strings
-            .get(self.name_offset.get(BE))
-            .read_error("Invalid PEF section name offset")
+        let name_off = self.name_offset.get(BE);
+        match name_off {
+            0xFFFFFFFF => Ok("".as_bytes()),
+            _ => strings.get(self.name_offset.get(BE)).read_error("Invalid PEF section name offset")
+        }
     }
 
 }

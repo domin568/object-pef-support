@@ -1,5 +1,5 @@
 use core::fmt::Debug;
-use crate::pef::{self};
+use crate::pef;
 use crate::endian::BigEndian as BE;
 use core::{slice, str, mem};
 use alloc::vec::Vec;
@@ -38,6 +38,10 @@ where
     pub fn parse(data: R) -> Result<Self> {
         let header = pef::PEFContainerHeader::parse(data)?;
         let sections = header.sections(data)?;
+        let loader_section = sections.
+            iter().
+            find(|&sect| sect.section_kind == pef::SectionKind::Loader).expect("Missing loader section");
+        let loader = pef::PEFLoaderInfoHeader::parse(data, loader_section.container_offset.get(BE))?;
         Ok(PefFile {
             header,
             sections,
@@ -104,6 +108,16 @@ impl pef::PEFContainerHeader {
         Ok(SectionTable::new(sections, strings))
     }
 
+}
+
+impl pef::PEFLoaderInfoHeader {
+    /// Read and parse loader, relocations, symbols
+    pub fn parse<'data, R: ReadRef<'data>>(data: R, offset: u32) -> read::Result<&'data Self> {
+        let loader_header = data
+            .read_at::<pef::PEFLoaderInfoHeader>(offset.into())
+            .read_error("Invalid PEFLoaderInfoHeader header size or alignment")?;
+        Ok(loader_header)
+    }
 }
 
 impl<'data, R> read::private::Sealed for PefFile<'data, R>
@@ -183,7 +197,7 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn kind(&self) -> ObjectKind {
-        ObjectKind::Unknown
+        ObjectKind::Executable
     }
 
     fn segments(&self) -> Self::SegmentIterator<'_> {

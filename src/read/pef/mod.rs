@@ -7,3 +7,6 @@ pub use file::*;
 
 mod section;
 pub use section::*;
+
+mod decompress;
+pub use decompress::*;

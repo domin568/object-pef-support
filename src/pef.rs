@@ -175,7 +175,54 @@ pub struct PEFLoaderInfoHeader
     pub exported_symbol_count : U32<BE>,
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct PEFLoaderRelocationHeader 
+{
+    /// Designates the section number to which this relocation header refers.
+    pub section_index : U16<BE>,
+    /// Reserved
+    pub reserved_a : U16<BE>,
+    /// Indicates the number of 16-bit relocation blocks for this section.
+    pub reloc_count : U32<BE>,
+    /// Indicates the byte offset from the start of the relocations area to the first relocation instruction for this section.
+    pub first_reloc_offset : U32<BE>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct PEFImportedLibrary 
+{
+    /// Indicates the offset (in bytes) from the beginning of the loader string table to the start of the null-terminated library name.
+    pub name_offset : U32<BE>,
+    /// Provide version information for checking the compatibility of the imported library.
+    pub old_imp_version : U32<BE>,
+    /// Provide version information for checking the compatibility of the imported library.
+    pub current_version : U32<BE>,
+    /// Indicates the number of symbols imported from this library.
+    pub imported_symbol_count : U32<BE>,
+    /// Holds the (zero-based) index of the first entry in the imported symbol table for this library.
+    pub first_imported_symbol : U32<BE>,
+    /// The high-order bit (mask 0x80) controls the order that the import libraries are initialized. 
+    /// If set to 0, the default initialization order is used, 
+    /// which specifies that the Code Fragment Manager should try to initialize the import library 
+    /// before the fragment that imports it. 
+    /// When set to 1, the import library must be initialized before the client fragment. 
+    /// The next bit (mask 0x40) controls whether the import library is weak. 
+    /// When set to 1 (weak import), the Code Fragment Manager continues 
+    /// preparation of the client fragment (and does not generate an error) 
+    /// even if the import library cannot be found. 
+    /// If the import library is not found, all imported symbols from that library have their addresses set to 0. 
+    /// You can use this information to determine whether a weak import library is actually present.
+    pub options : u8,
+    /// Reserved and must be set to 0.
+    pub reserved_a : u8,
+    /// Reserved and must be set to 0.
+    pub reserved_b : U16<BE>,
+}
+
 unsafe_impl_pod!(
     PEFContainerHeader,
-    PEFSectionHeader
+    PEFSectionHeader,
+    PEFLoaderInfoHeader,
 );
