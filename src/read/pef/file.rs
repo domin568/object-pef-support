@@ -28,6 +28,7 @@ where
     pub(super) header: &'data pef::PEFContainerHeader,
     pub(super) sections: SectionTable<'data, R>,
     pub(super) data: R,
+    pub(super) imports: Vec<Import<'data>>,
 }
 
 impl<'data, R> PefFile<'data, R>
@@ -38,14 +39,17 @@ where
     pub fn parse(data: R) -> Result<Self> {
         let header = pef::PEFContainerHeader::parse(data)?;
         let sections = header.sections(data)?;
-        let loader_section = sections.
-            iter().
-            find(|&sect| sect.section_kind == pef::SectionKind::Loader).expect("Missing loader section");
-        let loader = pef::PEFLoaderInfoHeader::parse(data, loader_section.container_offset.get(BE))?;
+        let loader_section = sections
+            .iter()
+            .find(|&sect| sect.section_kind == pef::SectionKind::Loader).expect("Missing loader section");
+
+        let loader = PefLoaderParser::parse(data, loader_section.container_offset.get(BE)).expect("Could not parse PEF loader section");
+        let imports = loader.imports(data, loader_section.container_offset.get(BE));
         Ok(PefFile {
             header,
             sections,
             data,
+            imports
         })
     }
 }
@@ -108,6 +112,82 @@ impl pef::PEFContainerHeader {
         Ok(SectionTable::new(sections, strings))
     }
 
+}
+
+/// Parser for PEFLoaderInfoHeader
+#[derive(Debug)]
+pub struct PefLoaderParser<'data, R = &'data [u8]>
+where
+    R: ReadRef<'data>
+{
+    pub(super) header: &'data pef::PEFLoaderInfoHeader,
+    pub(super) strings: StringTable<'data, R>,
+    pub(super) data: R,
+}
+
+impl<'data, R> PefLoaderParser<'data, R>
+where
+    R: ReadRef<'data>,
+{
+    /// Parse PEF loader
+    pub fn parse(data: R, offset: u32) -> Result<Self> {
+        let header = pef::PEFLoaderInfoHeader::parse(data, offset)?;
+        let strings = Self::loader_strings(data, *header, offset).expect("Could not get loader strings");
+        Ok(PefLoaderParser{
+            header,
+            strings,
+            data,
+        })
+    }
+
+    fn imports(&self, data: R, loader_offset: u32) -> Vec<Import<'data>> {
+
+        let import_headers_off = loader_offset + mem::size_of::<pef::PEFLoaderInfoHeader>() as u32;
+        let import_headers_count = self.header.imported_library_count.get(BE) as usize;
+        let import_headers = data.read_slice_at::<pef::PEFImportedLibrary>(import_headers_off as u64, import_headers_count)
+            .read_error("Could not read PEFImportedLibrary headers")
+            .unwrap();
+
+        let import_symbols_off = import_headers_off + mem::size_of::<pef::PEFImportedLibrary>() as u32 * import_headers_count as u32;
+        let import_symbols_count = self.header.total_imported_symbol_count.get(BE) as usize;
+        let import_symbols = data.read_slice_at::<pef::PEFImportedSymbol>(import_symbols_off as u64, import_symbols_count)
+            .read_error("Could not read imported symbols (PEFImportedSymbol)")
+            .unwrap();
+
+        let mut import_vec: Vec<Import<'data>> = Vec::new();
+
+        for import_header in import_headers {
+            let offset = import_header.name_offset.get(BE);
+            let import_library_name = self.strings.get(offset).expect("Could not get imported library name");
+            
+            let start = import_header.first_imported_symbol.get(BE) as usize;
+            let end = start + import_header.imported_symbol_count.get(BE) as usize;
+            for symbol_idx in start..end {
+                let symbol = import_symbols.get(symbol_idx).expect(format!("Could not get import symbol at idx {}", symbol_idx).as_str());
+                let name_offset = symbol.name_offset();
+                let symbol_name = self.strings.get(name_offset).expect("Could not get imported symbol name");
+                import_vec.push(Import {
+                    library: read::util::ByteString(import_library_name),
+                    name: read::util::ByteString(symbol_name),
+                });
+            }
+        }
+        import_vec
+    }
+
+    fn exports(&self) -> Vec<Export<'data>> {
+        todo!()
+    }
+
+    fn loader_strings (
+        data: R,
+        header: pef::PEFLoaderInfoHeader,
+        loader_offset: u32,
+    ) -> read::Result<StringTable<'data, R>> {
+        let start = loader_offset + header.loader_strings_offset.get(BE);
+        let end = loader_offset + header.export_hash_offset.get(BE);
+        Ok(StringTable::new(data, start as u64, end as u64))
+    }
 }
 
 impl pef::PEFLoaderInfoHeader {
@@ -260,7 +340,7 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn imports(&self) -> Result<Vec<Import<'data>>> {
-        todo!()
+        Ok(self.imports.clone())
     }
 
     fn exports(&self) -> Result<Vec<Export<'data>>> {

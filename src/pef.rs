@@ -177,7 +177,7 @@ pub struct PEFLoaderInfoHeader
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct PEFLoaderRelocationHeader 
+pub struct PEFLoaderRelocationHeader 
 {
     /// Designates the section number to which this relocation header refers.
     pub section_index : U16<BE>,
@@ -191,7 +191,7 @@ struct PEFLoaderRelocationHeader
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct PEFImportedLibrary 
+pub struct PEFImportedLibrary 
 {
     /// Indicates the offset (in bytes) from the beginning of the loader string table to the start of the null-terminated library name.
     pub name_offset : U32<BE>,
@@ -221,8 +221,34 @@ struct PEFImportedLibrary
     pub reserved_b : U16<BE>,
 }
 
+/// 32‑bit PEFImportedSymbol:
+///  ┌─────────┬──────────────────────────────┐
+///  │ 8 bits  │ 24 bits                      │
+///  │ symbol  │ offset into string table     │
+///  └─────────┴──────────────────────────────┘
+///    ↑ high   ↑ low
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct PEFImportedSymbol
+{
+    pub class_and_name : U32<BE>,
+}
+
+impl PEFImportedSymbol {
+    /// The high‑order 8 bits.
+    pub fn symbol_class(self) -> u8 {
+        (self.class_and_name.get(BE) & 0xFF00_0000) as u8
+    }
+    /// The low‑order 24 bits.
+    pub fn name_offset(self) -> u32 {
+        self.class_and_name.get(BE) & 0x00FF_FFFF
+    }
+}
+
 unsafe_impl_pod!(
     PEFContainerHeader,
     PEFSectionHeader,
     PEFLoaderInfoHeader,
+    PEFImportedLibrary,
+    PEFImportedSymbol,
 );

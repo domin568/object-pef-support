@@ -1040,7 +1040,11 @@ impl<'data> CompressedData<'data> {
                     }
                     CompressionFormat::PefPattern => {
                         let mut pef_pattern_decompressor = pef::PefSectionDecompressor::new(self.data, &mut decompressed);
-                        pef_pattern_decompressor.decompress_vec();
+                        if (!pef_pattern_decompressor.decompress_vec()) {
+                            return Err(Error(
+                                "Failed to decompress PEF pattern initialized section data",
+                            ));
+                        }
                     }
                     _ => unreachable!(),
                 }
