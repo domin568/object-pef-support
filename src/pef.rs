@@ -229,20 +229,67 @@ pub struct PEFImportedLibrary
 ///    ↑ high   ↑ low
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct PEFImportedSymbol
+pub struct PEFSymbol
 {
     pub class_and_name : U32<BE>,
 }
 
-impl PEFImportedSymbol {
-    /// The high‑order 8 bits.
-    pub fn symbol_class(self) -> u8 {
-        (self.class_and_name.get(BE) & 0xFF00_0000) as u8
+#[derive(Debug)]
+pub enum SymbolClass
+{
+    kPEFCodeSymbol = 0, // A code address
+    kPEFDataSymbol = 1, // A data address
+    kPEFTVectSymbol = 2, // A standard procedure pointer
+    kPEFTOCSymbol = 3, // A direct data area (Table of Contents) symbol
+    kPEFGlueSymbol = 4, // A linker-inserted glue symbol
+}
+
+impl PEFSymbol {
+    pub fn symbol_class(self) -> SymbolClass {
+        let val = ((self.class_and_name.get(BE) & 0xFF00_0000) >> 24) as u8;
+        match val {
+            0 => SymbolClass::kPEFCodeSymbol,
+            1 => SymbolClass::kPEFDataSymbol,
+            2 => SymbolClass::kPEFTVectSymbol,
+            3 => SymbolClass::kPEFTOCSymbol,
+            4 => SymbolClass::kPEFGlueSymbol,
+            _ => panic!("Unknown ImportSymbolClass value: {}", val),
+        }
     }
-    /// The low‑order 24 bits.
     pub fn name_offset(self) -> u32 {
         self.class_and_name.get(BE) & 0x00FF_FFFF
     }
+}
+
+/// The first field (14 bits) contains the number of items in this chain.
+/// The second field (18 bits) contains the table index value of the first symbol in the chain
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct PEFExportedSymbolHashSlot {
+    pub slot : U32<BE>,
+}
+
+impl PEFExportedSymbolHashSlot {
+    pub fn chain_count(self) -> u32 {
+        (self.slot.get(BE) & 0xFFFC_0000) >> 18
+    }
+    pub fn index_of_first_export(self) -> u32 {
+        self.slot.get(BE) & 0x0003_FFFF
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PEFExportedSymbolKey {
+    pub symbol_length: U16<BE>,
+    pub encoded_symbol_name: U16<BE>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PEFExportedSymbol {
+    pub class_and_name: PEFSymbol,
+    pub symbol_value: U32<BE>,
+    pub section_index: U16<BE>,
 }
 
 unsafe_impl_pod!(
@@ -250,5 +297,8 @@ unsafe_impl_pod!(
     PEFSectionHeader,
     PEFLoaderInfoHeader,
     PEFImportedLibrary,
-    PEFImportedSymbol,
+    PEFSymbol,
+    PEFExportedSymbolHashSlot,
+    PEFExportedSymbolKey,
+    PEFExportedSymbol,
 );

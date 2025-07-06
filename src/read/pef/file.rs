@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use std::string::ToString;
 use crate::pef;
 use crate::endian::BigEndian as BE;
 use core::{slice, str, mem};
@@ -28,7 +29,7 @@ where
     pub(super) header: &'data pef::PEFContainerHeader,
     pub(super) sections: SectionTable<'data, R>,
     pub(super) data: R,
-    pub(super) imports: Vec<Import<'data>>,
+    pub(super) loader: PefLoaderParser<'data, R>
 }
 
 impl<'data, R> PefFile<'data, R>
@@ -44,12 +45,12 @@ where
             .find(|&sect| sect.section_kind == pef::SectionKind::Loader).expect("Missing loader section");
 
         let loader = PefLoaderParser::parse(data, loader_section.container_offset.get(BE)).expect("Could not parse PEF loader section");
-        let imports = loader.imports(data, loader_section.container_offset.get(BE));
+        
         Ok(PefFile {
             header,
             sections,
             data,
-            imports
+            loader,
         })
     }
 }
@@ -122,7 +123,7 @@ where
 {
     pub(super) header: &'data pef::PEFLoaderInfoHeader,
     pub(super) strings: StringTable<'data, R>,
-    pub(super) data: R,
+    pub(super) offset: u32,
 }
 
 impl<'data, R> PefLoaderParser<'data, R>
@@ -136,25 +137,23 @@ where
         Ok(PefLoaderParser{
             header,
             strings,
-            data,
+            offset,
         })
     }
 
-    fn imports(&self, data: R, loader_offset: u32) -> Vec<Import<'data>> {
+    fn imports(&self, data: R, loader_offset: u32) -> Result<Vec<Import<'data>>> {
 
         let import_headers_off = loader_offset + mem::size_of::<pef::PEFLoaderInfoHeader>() as u32;
         let import_headers_count = self.header.imported_library_count.get(BE) as usize;
         let import_headers = data.read_slice_at::<pef::PEFImportedLibrary>(import_headers_off as u64, import_headers_count)
-            .read_error("Could not read PEFImportedLibrary headers")
-            .unwrap();
+            .read_error("Could not read PEFImportedLibrary headers")?;
 
         let import_symbols_off = import_headers_off + mem::size_of::<pef::PEFImportedLibrary>() as u32 * import_headers_count as u32;
         let import_symbols_count = self.header.total_imported_symbol_count.get(BE) as usize;
-        let import_symbols = data.read_slice_at::<pef::PEFImportedSymbol>(import_symbols_off as u64, import_symbols_count)
-            .read_error("Could not read imported symbols (PEFImportedSymbol)")
-            .unwrap();
+        let import_symbols = data.read_slice_at::<pef::PEFSymbol>(import_symbols_off as u64, import_symbols_count)
+            .read_error("Could not read imported symbols (PEFImportedSymbol)")?;
 
-        let mut import_vec: Vec<Import<'data>> = Vec::new();
+        let mut import_vec: Vec<Import<'data>> = Vec::with_capacity(import_symbols_count);
 
         for import_header in import_headers {
             let offset = import_header.name_offset.get(BE);
@@ -172,11 +171,54 @@ where
                 });
             }
         }
-        import_vec
+        Ok(import_vec)
     }
 
-    fn exports(&self) -> Vec<Export<'data>> {
-        todo!()
+    fn exports(&self, data: R, loader_offset: u32, sections: &SectionTable<'data, R>) -> Result<Vec<Export<'data>>> {
+        let export_hash_slot_offset = loader_offset + self.header.export_hash_offset.get(BE);
+        let export_hash_slot_count = (2u32)
+            .checked_pow(self.header.export_hash_table_power.get(BE))
+            .ok_or(Error("Invalid export hash size"))?;
+
+        let export_key_table_offset = export_hash_slot_offset + mem::size_of::<pef::PEFExportedSymbolHashSlot>() as u32 * export_hash_slot_count;
+        let export_symbol_count = self.header.exported_symbol_count.get(BE);
+        let export_keys = data.read_slice_at::<pef::PEFExportedSymbolKey>(export_key_table_offset.into(), export_symbol_count as usize)
+            .read_error("Could not read export key table")?;
+
+        // align by 4 ? 
+        let export_symbols_offset = export_key_table_offset + mem::size_of::<pef::PEFExportedSymbolKey>() as u32 * export_symbol_count;
+        let export_symbols = data.read_slice_at::<pef::PEFExportedSymbol>(export_symbols_offset.into(), export_symbol_count as usize)
+            .read_error("Could not read export symbols")?;
+
+        let mut export_vec: Vec<Export<'data>> = Vec::with_capacity(export_symbol_count as usize);
+
+        for symbol_idx in 0..export_symbol_count {
+            let symbol_name_length = export_keys.get(symbol_idx as usize)
+                .expect(&format!("Could not get export key at index {}", symbol_idx))
+                .symbol_length.get(BE);
+
+            let export_symbol = export_symbols.get(symbol_idx as usize)
+                .expect(&format!("Could not get export symbol at index{}", symbol_idx));
+            let symbol_name_offset = export_symbol
+                .class_and_name
+                .name_offset();
+
+            let loader_strings_offset = loader_offset + self.header.loader_strings_offset.get(BE);
+            let symbol_name_offset = loader_strings_offset + symbol_name_offset;
+
+            let symbol_name = data.read_bytes_at(symbol_name_offset.into(), symbol_name_length.into())
+                .expect("Could not read symbol name");
+
+            let symbol_section = sections.section(SectionIndex(export_symbol.section_index.get(BE) as usize))
+                .expect("Could not get exported symbol section");
+            let symbol_offset = symbol_section.container_offset.get(BE) + export_symbol.symbol_value.get(BE);
+
+            export_vec.push(Export {
+                name: read::util::ByteString(symbol_name),
+                address: symbol_offset.into(),
+            });
+        }
+        Ok(export_vec)
     }
 
     fn loader_strings (
@@ -340,11 +382,11 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn imports(&self) -> Result<Vec<Import<'data>>> {
-        Ok(self.imports.clone())
+        self.loader.imports(self.data, self.loader.offset)
     }
 
     fn exports(&self) -> Result<Vec<Export<'data>>> {
-        todo!()
+        self.loader.exports(self.data, self.loader.offset, &self.sections)
     }
 
     fn has_debug_symbols(&self) -> bool {
@@ -352,12 +394,16 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
     }
 
     fn relative_address_base(&self) -> u64 {
-        todo!()
+        0
     }
 
     #[inline]
     fn entry(&self) -> u64 {
-        todo!()
+        let entry_section_idx = self.loader.header.main_section.get(BE);
+        let entry_section_offset = self.loader.header.main_offset.get(BE);
+        let entry_section = self.sections.section(SectionIndex(entry_section_idx as usize))
+            .expect("Could not get entry section");
+        entry_section.container_offset.get(BE) as u64 + entry_section_offset as u64
     }
 
     #[inline]
