@@ -331,3 +331,21 @@ fn pef_test_exports() {
         );
     }
 }
+
+#[cfg(feature = "pef")]
+#[test]
+fn pef_test_entrypoint() {
+    let pef_testfiles = std::path::Path::new("testfiles/pef");
+
+    let file_name = "test1";
+
+    let path = pef_testfiles.join(file_name);
+    let file = std::fs::File::open(&path).expect(format!("Could not open {:?}", &path).as_str());
+    let reader = object::read::ReadCache::new(file);
+    let object = object::read::File::parse(&reader);
+    assert!(object.is_ok());
+    let object = object.unwrap();
+
+    let ep_offset = object.entry();
+    assert!(ep_offset == 0x5370);
+}

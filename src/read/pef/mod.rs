@@ -10,3 +10,6 @@ pub use section::*;
 
 mod decompress;
 pub use decompress::*;
+
+mod relocation;
+pub use relocation::*;

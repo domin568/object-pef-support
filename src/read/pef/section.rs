@@ -213,7 +213,7 @@ where
 
     #[inline]
     fn address(&self) -> u64 {
-        u64::from(self.section.default_address.get(BE))
+        u64::from(self.section.container_offset.get(BE))
     }
 
     #[inline]
@@ -302,14 +302,23 @@ where
 
     fn relocations(&self) -> PefRelocationIterator<'data, 'file, R> {
         todo!();
+        /* 
+        PefSectionRelocationIterator {
+            section_index: self.index,
+            file: self.file,
+            relocations: None,
+        }
+        */
     }
 
     fn relocation_map(&self) -> read::Result<RelocationMap> {
-        todo!();
+        RelocationMap::new(self.file, self)
     }
 
     fn flags(&self) -> SectionFlags {
-        todo!();
+        SectionFlags::Pef {
+            share_kind: self.section.share_kind as u8
+        }
     }
 }
 
@@ -445,7 +454,7 @@ impl pef::PEFSectionHeader {
         todo!();
     }
 
-    /// Return the section data in a PE file.
+    /// Return the section data in a PEF file.
     ///
     /// The length of the data will be the minimum of the file size and virtual size.
     pub fn pef_data<'data, R: ReadRef<'data>>(&self, data: R) -> Result<&'data [u8]> {

@@ -77,7 +77,7 @@ pub enum SectionKind
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShareKind 
+pub enum ShareKind
 {
     /// Indicates that the section is shared within a process, but a fresh copy is created for different processes.
     ProcessShare = 1, 
@@ -297,6 +297,7 @@ unsafe_impl_pod!(
     PEFSectionHeader,
     PEFLoaderInfoHeader,
     PEFImportedLibrary,
+    PEFLoaderRelocationHeader,
     PEFSymbol,
     PEFExportedSymbolHashSlot,
     PEFExportedSymbolKey,

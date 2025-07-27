@@ -526,6 +526,11 @@ pub enum SectionFlags {
         /// `s_flags` field in the section header.
         s_flags: u32,
     },
+    /// PEF section flags
+    Pef {
+        /// `shareKind` field in the section header
+        share_kind: u8,
+    }
 }
 
 /// Symbol flags that are specific to each file format.

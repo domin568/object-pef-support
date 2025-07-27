@@ -1,7 +1,6 @@
 use core::fmt::Debug;
-use std::string::ToString;
 use crate::pef;
-use crate::endian::BigEndian as BE;
+use crate::endian::{ BigEndian as BE, I32, U16, U32};
 use core::{slice, str, mem};
 use alloc::vec::Vec;
 use crate::read::{
@@ -11,7 +10,7 @@ use crate::read::{
     Result, SectionIndex, SymbolFlags, SymbolIndex,
     SymbolKind, SymbolScope, SymbolSection, StringTable
 };
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 
 use super::{
     PefSection, PefSectionIterator,
@@ -399,11 +398,19 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
 
     #[inline]
     fn entry(&self) -> u64 {
+        // all relocations must be applied
+        /* 
         let entry_section_idx = self.loader.header.main_section.get(BE);
         let entry_section_offset = self.loader.header.main_offset.get(BE);
-        let entry_section = self.sections.section(SectionIndex(entry_section_idx as usize))
+        let entry_section = self.sections.section(SectionIndex((entry_section_idx + 1) as usize))
             .expect("Could not get entry section");
-        entry_section.container_offset.get(BE) as u64 + entry_section_offset as u64
+        let entry_ptr_offset = entry_section.container_offset.get(BE) as u64 + entry_section_offset as u64;
+        let ep_offset = self.data
+            .read_at::<U32<BE>>(entry_ptr_offset)
+            .expect("Could not read EP");
+        ep_offset.get(BE) as u64
+        */
+        todo!();
     }
 
     #[inline]
