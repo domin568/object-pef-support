@@ -10,6 +10,7 @@ use crate::read::{
     Result, SectionIndex, SymbolFlags, SymbolIndex,
     SymbolKind, SymbolScope, SymbolSection, StringTable
 };
+use std::convert::TryInto;
 use chrono::{DateTime, Utc};
 
 use super::{
@@ -398,19 +399,17 @@ impl<'data, R: ReadRef<'data>> Object<'data> for PefFile<'data, R> {
 
     #[inline]
     fn entry(&self) -> u64 {
-        // all relocations must be applied
-        /* 
-        let entry_section_idx = self.loader.header.main_section.get(BE);
-        let entry_section_offset = self.loader.header.main_offset.get(BE);
-        let entry_section = self.sections.section(SectionIndex((entry_section_idx + 1) as usize))
-            .expect("Could not get entry section");
-        let entry_ptr_offset = entry_section.container_offset.get(BE) as u64 + entry_section_offset as u64;
-        let ep_offset = self.data
-            .read_at::<U32<BE>>(entry_ptr_offset)
-            .expect("Could not read EP");
-        ep_offset.get(BE) as u64
-        */
-        todo!();
+        
+        let entry_section_idx = self.loader.header.main_section.get(BE) + 1;
+        let entry_section_offset = self.loader.header.main_offset.get(BE) as usize;
+        let entry_section = Self::section_by_index(&self, SectionIndex{ 0: entry_section_idx as usize }).expect("Could not get entry point section");
+        let section_data = entry_section.uncompressed_data().expect("Could not get section data");
+        let ep_offset_ptr_bytes = &section_data[entry_section_offset..entry_section_offset+4];
+        let be_arr: [u8; 4] = ep_offset_ptr_bytes
+            .try_into()
+            .expect("slice with incorrect length");
+        let ep_offset = u32::from_be_bytes(be_arr);
+        ep_offset as u64
     }
 
     #[inline]
